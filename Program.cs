@@ -104,11 +104,37 @@ namespace Client
         }
         public static void GetStatus()
         {
-           
+            int Duration = (int)DateTime.Now.Subtract(ClientDateConnection).TotalSeconds;
+            Console.ForegroundColor = ConsoleColor.White;
+
         }
         public static void ConnectServer()
         {
+            Console.ForegroundColor = ConsoleColor.White;
 
+            Console.Write("Login: ");
+            string login = Console.ReadLine();
+
+            Console.Write("Password: ");
+            string password = Console.ReadLine();
+
+            IPEndPoint endPoint = new IPEndPoint(ServerIpAddress, ServerPort);
+            Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            socket.Connect(endPoint);
+
+            string msg = $"/connect {login} {password}";
+            socket.Send(Encoding.UTF8.GetBytes(msg));
+
+            byte[] buffer = new byte[1024];
+            int size = socket.Receive(buffer);
+            string response = Encoding.UTF8.GetString(buffer, 0, size);
+
+            if (response == "/auth_fail")
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("Неверный логин или пароль.");
+                return;
+            }
         }
 
     }   
