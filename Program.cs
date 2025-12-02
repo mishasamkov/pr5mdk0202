@@ -9,8 +9,8 @@ using System.Threading.Tasks;
 
 namespace Client
 {
-     class Program
-     {
+    class Program
+    {
         static IPAddress ServerIpAddress;
         static int ServerPort;
         static string ClientTolen;
@@ -19,6 +19,10 @@ namespace Client
 
         {
             OnSettings();
+            while (true)
+            {
+                SetCommand();
+            }
         }
         public static void OnSettings()
         {
@@ -136,6 +140,5 @@ namespace Client
                 return;
             }
         }
-
-    }   
+    }
 }
