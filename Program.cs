@@ -18,7 +18,7 @@ namespace Client
         static void Main(string[] args)
 
         {
-            
+            OnSettings();
         }
         public static void OnSettings()
         {
@@ -67,5 +67,21 @@ namespace Client
             Console.ForegroundColor = ConsoleColor.Green;
             Console.WriteLine("/config");
         }
-    }
+
+        public static void SetCommand()
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            string Command = Console.ReadLine();
+
+            if (Command == "/config")
+            {
+                File.Delete(Directory.GetCurrentDirectory() + "/.config");
+                OnSettings();
+            }
+            else if (Command == "/connect") ConnectServer();
+            else if (Command == "/status") GetStatus();
+            else if (Command == "/help") Help();
+        }
+        
+    }   
 }
