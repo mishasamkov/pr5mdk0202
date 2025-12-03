@@ -124,7 +124,15 @@ namespace Client
 
             IPEndPoint endPoint = new IPEndPoint(ServerIpAddress, ServerPort);
             Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            socket.Connect(endPoint);
+
+            try
+            {
+                socket.Connect(endPoint);
+            } catch (Exception ex) {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine(ex);
+                return;
+            }
 
             string msg = $"/connect {login} {password}";
             socket.Send(Encoding.UTF8.GetBytes(msg));
