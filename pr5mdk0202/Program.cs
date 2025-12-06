@@ -1,11 +1,8 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace Client
 {
@@ -13,10 +10,11 @@ namespace Client
     {
         static IPAddress ServerIpAddress;
         static int ServerPort;
-        static string ClientTolen;
+        static string ClientToken;
         static DateTime ClientDateConnection;
-        static void Main(string[] args)
+        static Socket connectedSocket;
 
+        static void Main(string[] args)
         {
             OnSettings();
             while (true)
@@ -24,6 +22,29 @@ namespace Client
                 SetCommand();
             }
         }
+
+        static void WriteInfo(string s)
+        {
+            var old = Console.ForegroundColor;
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine(s);
+            Console.ForegroundColor = old;
+        }
+        static void WriteError(string s)
+        {
+            var old = Console.ForegroundColor;
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine(s);
+            Console.ForegroundColor = old;
+        }
+        static void WriteNormal(string s)
+        {
+            var old = Console.ForegroundColor;
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.WriteLine(s);
+            Console.ForegroundColor = old;
+        }
+
         public static void OnSettings()
         {
             string Path = Directory.GetCurrentDirectory() + "/.config";
@@ -31,51 +52,50 @@ namespace Client
 
             if (File.Exists(Path))
             {
-                StreamReader streamReader = new StreamReader(Path);
-                IpAddress = streamReader.ReadLine();
-                ServerIpAddress = IPAddress.Parse(IpAddress);
-                ServerPort = int.Parse(streamReader.ReadLine());
-                streamReader.Close();
+                using (var streamReader = new StreamReader(Path))
+                {
+                    IpAddress = streamReader.ReadLine();
+                    ServerIpAddress = IPAddress.Parse(IpAddress);
+                    ServerPort = int.Parse(streamReader.ReadLine());
+                }
 
-                Console.ForegroundColor = ConsoleColor.White;
-                Console.Write("Server address: ");
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine(IpAddress);
+                WriteNormal("Server address: ");
+                WriteInfo(IpAddress);
 
-                Console.ForegroundColor = ConsoleColor.White;
-                Console.Write("Server port: ");
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine(ServerPort.ToString());
+                WriteNormal("Server port: ");
+                WriteInfo(ServerPort.ToString());
             }
             else
             {
-                Console.ForegroundColor = ConsoleColor.White;
-                Console.Write("Please provide the IP address if the license server: ");
+                WriteNormal("Please provide the IP address of the license server: ");
                 Console.ForegroundColor = ConsoleColor.Green;
                 IpAddress = Console.ReadLine();
+                Console.ForegroundColor = ConsoleColor.White;
                 ServerIpAddress = IPAddress.Parse(IpAddress);
 
-                Console.ForegroundColor = ConsoleColor.White;
                 Console.Write("Please specify the license server port: ");
                 Console.ForegroundColor = ConsoleColor.Green;
                 ServerPort = int.Parse(Console.ReadLine());
+                Console.ForegroundColor = ConsoleColor.White;
 
-                StreamWriter streamWriter = new StreamWriter(Path);
-                streamWriter.WriteLine(IpAddress);
-                streamWriter.WriteLine(ServerPort.ToString());
-                streamWriter.Close();
+                using (var streamWriter = new StreamWriter(Path))
+                {
+                    streamWriter.WriteLine(IpAddress);
+                    streamWriter.WriteLine(ServerPort.ToString());
+                }
             }
 
-            Console.ForegroundColor = ConsoleColor.White;
-            Console.Write("To change, write the command: ");
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine("/config");
+            WriteNormal("To change settings, write the command: ");
+            WriteInfo("/config");
         }
 
         public static void SetCommand()
         {
             Console.ForegroundColor = ConsoleColor.Red;
             string Command = Console.ReadLine();
+            Console.ForegroundColor = ConsoleColor.White;
+
+            if (string.IsNullOrWhiteSpace(Command)) return;
 
             if (Command == "/config")
             {
@@ -84,43 +104,111 @@ namespace Client
             }
             else if (Command == "/connect") ConnectServer();
             else if (Command == "/status") GetStatus();
+            else if (Command == "/disconnect") DisconnectLocal();
             else if (Command == "/help") Help();
+            else WriteError("Unknown command. Use /help");
         }
+
         public static void Help()
         {
-            Console.ForegroundColor = ConsoleColor.White;
-            Console.WriteLine("Commands to the server: ");
-
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.Write("/config");
-            Console.ForegroundColor = ConsoleColor.White;
-            Console.WriteLine(" - set initial settings ");
-
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.Write("/connect");
-            Console.ForegroundColor = ConsoleColor.White;
-            Console.WriteLine(" - connection to the server ");
-
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.Write("/status");
-            Console.ForegroundColor = ConsoleColor.White;
-            Console.WriteLine(" - show list users ");
+            WriteNormal("Commands to the server:");
+            WriteInfo("/config"); WriteNormal(" - set initial settings");
+            WriteInfo("/connect"); WriteNormal(" - connect to the server (and keep connection)");
+            WriteInfo("/status"); WriteNormal(" - request status from server (must be connected)");
+            WriteInfo("/disconnect"); WriteNormal(" - close current connection");
         }
+
         public static void GetStatus()
         {
-            int Duration = (int)DateTime.Now.Subtract(ClientDateConnection).TotalSeconds;
-            Console.ForegroundColor = ConsoleColor.White;
+            if (connectedSocket == null || !connectedSocket.Connected)
+            {
+                WriteError("Not connected. Use /connect first.");
+                return;
+            }
 
+            try
+            {
+                var msg = "/status";
+                connectedSocket.Send(Encoding.UTF8.GetBytes(msg));
+
+                // читаем ответ
+                var buffer = new byte[4096];
+                int size = connectedSocket.Receive(buffer);
+                if (size <= 0)
+                {
+                    WriteError("Connection closed by server.");
+                    CleanupConnection();
+                    return;
+                }
+
+                var response = Encoding.UTF8.GetString(buffer, 0, size).Trim();
+                if (response.StartsWith("/status"))
+                {
+                    var parts = response.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length >= 6)
+                    {
+                        var connectedAt = parts[1].Replace('_', ' ');
+                        var duration = parts[2];
+                        var ip = parts[3];
+                        var port = parts[4];
+                        var code = parts[5];
+
+                        WriteInfo("Status received:");
+                        WriteNormal($"Connected at: {connectedAt}");
+                        WriteNormal($"Duration (s): {duration}");
+                        WriteNormal($"Server sees client IP: {ip}");
+                        WriteNormal($"Server sees client port: {port}");
+                        WriteNormal($"Session code: {code}");
+                    }
+                    else
+                    {
+                        WriteNormal("Status: " + response);
+                    }
+                }
+                else if (response == "/timeout")
+                {
+                    WriteError("Server disconnected you due to timeout.");
+                    CleanupConnection();
+                }
+                else if (response == "/blacklisted")
+                {
+                    WriteError("You are blacklisted.");
+                    CleanupConnection();
+                }
+                else
+                {
+                    WriteNormal("Server response: " + response);
+                }
+            }
+            catch (SocketException ex)
+            {
+                WriteError("Socket error while requesting status: " + ex.Message);
+                CleanupConnection();
+            }
+            catch (Exception ex)
+            {
+                WriteError("Error while requesting status: " + ex.Message);
+                CleanupConnection();
+            }
         }
+
         public static void ConnectServer()
         {
+            if (connectedSocket != null && connectedSocket.Connected)
+            {
+                WriteInfo("Already connected.");
+                return;
+            }
+
+            WriteNormal("Login: ");
+            Console.ForegroundColor = ConsoleColor.Green;
+            string login = Console.ReadLine();
             Console.ForegroundColor = ConsoleColor.White;
 
-            Console.Write("Login: ");
-            string login = Console.ReadLine();
-
-            Console.Write("Password: ");
+            WriteNormal("Password: ");
+            Console.ForegroundColor = ConsoleColor.Green;
             string password = Console.ReadLine();
+            Console.ForegroundColor = ConsoleColor.White;
 
             IPEndPoint endPoint = new IPEndPoint(ServerIpAddress, ServerPort);
             Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
@@ -128,25 +216,118 @@ namespace Client
             try
             {
                 socket.Connect(endPoint);
-            } catch (Exception ex) {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine(ex);
+            }
+            catch (Exception ex)
+            {
+                WriteError("Connect error: " + ex.Message);
                 return;
             }
 
             string msg = $"/connect {login} {password}";
-            socket.Send(Encoding.UTF8.GetBytes(msg));
-
-            byte[] buffer = new byte[1024];
-            int size = socket.Receive(buffer);
-            string response = Encoding.UTF8.GetString(buffer, 0, size);
-
-            if (response == "/auth_fail")
+            try
             {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine("Неверный логин или пароль.");
+                socket.Send(Encoding.UTF8.GetBytes(msg));
+            }
+            catch (Exception ex)
+            {
+                WriteError("Send error: " + ex.Message);
+                socket.Close();
                 return;
             }
+
+            try
+            {
+                byte[] buffer = new byte[4096];
+                int size = socket.Receive(buffer);
+                if (size <= 0)
+                {
+                    WriteError("No response from server.");
+                    socket.Close();
+                    return;
+                }
+
+                string response = Encoding.UTF8.GetString(buffer, 0, size).Trim();
+
+                if (response.StartsWith("/auth_ok"))
+                {
+                    var parts = response.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length >= 2)
+                    {
+                        ClientToken = parts[1];
+                        ClientDateConnection = DateTime.Now;
+                        connectedSocket = socket;
+                        WriteInfo($"Authenticated. Session code: {ClientToken}");
+                        WriteInfo($"Connected at: {ClientDateConnection:yyyy-MM-dd HH:mm:ss}");
+                    }
+                    else
+                    {
+                        WriteError("Malformed /auth_ok response.");
+                        socket.Close();
+                    }
+                }
+                else if (response == "/auth_fail")
+                {
+                    WriteError("Неверный логин или пароль.");
+                    socket.Close();
+                }
+                else if (response == "/no_slots")
+                {
+                    WriteError("No available license slots on server.");
+                    socket.Close();
+                }
+                else if (response == "/blacklisted")
+                {
+                    WriteError("Your IP is blacklisted on server.");
+                    socket.Close();
+                }
+                else
+                {
+                    WriteNormal("Server response: " + response);
+                    socket.Close();
+                }
+            }
+            catch (SocketException ex)
+            {
+                WriteError("Socket error while receiving auth response: " + ex.Message);
+                try { socket.Close(); } catch { }
+            }
+            catch (Exception ex)
+            {
+                WriteError("Error while receiving auth response: " + ex.Message);
+                try { socket.Close(); } catch { }
+            }
+        }
+
+        static void DisconnectLocal()
+        {
+            if (connectedSocket == null) { WriteError("No active connection."); return; }
+            try
+            {
+                try
+                {
+                    connectedSocket.Send(Encoding.UTF8.GetBytes("/disconnect"));
+                }
+                catch { }
+
+                connectedSocket.Close();
+            }
+            catch (Exception ex)
+            {
+                WriteError("Error while disconnecting: " + ex.Message);
+            }
+            finally
+            {
+                CleanupConnection();
+                WriteInfo("Disconnected.");
+            }
+        }
+
+        static void CleanupConnection()
+        {
+            try { connectedSocket?.Close(); } catch { }
+            connectedSocket = null;
+            ClientToken = null;
+            ClientDateConnection = default;
         }
     }
 }
