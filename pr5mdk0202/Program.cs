@@ -324,7 +324,7 @@ namespace Client
 
         static void CleanupConnection()
         {
-            try { connectedSocket?.Close(); } catch { }
+            try { connectedSocket?.Close(); } catch { } //erqew
             connectedSocket = null;
             ClientToken = null;
             ClientDateConnection = default;
