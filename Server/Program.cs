@@ -197,6 +197,8 @@ namespace LicenseServer
 
                     WriteInfo("Config updated and saved to file.");
                 }
+
+
                 else if (cmd == "/status")
                 {
                     WriteInfo($"Connected clients: {ConnectedClients.Count} / {MaxLicensedClients}");
@@ -230,10 +232,17 @@ namespace LicenseServer
                     }
                     var sub = parts[1].ToLowerInvariant();
                     var ip = parts[2];
-                    var code = "localhost";
+
                     if (sub == "add")
                     {
                         AddToBlacklist(ip).Wait();
+                        string lastCode = ConnectedClients.Last().Value.UniqueCode;
+                        if (ConnectedClients.TryRemove(lastCode, out var info))
+                        {
+                            try { info.TcpClient.Close(); } catch { }
+                            info.Cancellation?.Cancel();
+                            WriteInfo($"[Admin] Disconnected {lastCode}");
+                        }
                     }
                     else if (sub == "remove")
                     {
